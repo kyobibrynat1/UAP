@@ -350,6 +350,8 @@ class FidelityValidator:
     
     def _create_sweep_visualization(self, sweep_results: Dict, save_dir: str):
         """Create visualization of alpha sweep results"""
+
+        os.makedirs(save_dir, exist_ok=True)
         
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         
