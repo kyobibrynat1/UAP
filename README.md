@@ -160,11 +160,27 @@ Final effectiveness is measured by a controlled study:
 
 ## 📜 **Academic References**
 
-1. **Moosavi-Dezfooli, S. et al. (2017):** [Universal adversarial perturbations](https://arxiv.org/abs/1610.08401)
+### Core Algorithm Foundations
 
-2. **Radford, A. et al. (2021):** [Learning Transferable Visual Models from Natural Language Supervision (CLIP)](https://arxiv.org/abs/2103.00020)
+1. **Kurakin, A., Goodfellow, I., & Bengio, S. (2016):** [Adversarial examples in the physical world](https://arxiv.org/abs/1607.02533) - I-FGSM (Iterative Fast Gradient Sign Method)
 
-3. **Wang, Z. et al. (2004):** Image quality assessment: from error visibility to structural similarity (SSIM)
+2. **Moosavi-Dezfooli, S., Fawzi, A., Fawzi, O., & Frossard, P. (2017):** [Universal adversarial perturbations](https://arxiv.org/abs/1610.08401) - UAP concept and framework
+
+3. **Radford, A., Kim, J. W., Hallacy, C., et al. (2021):** [Learning Transferable Visual Models from Natural Language Supervision (CLIP)](https://arxiv.org/abs/2103.00020) - Vision-language model architecture
+
+4. **Lin, T. Y., Maire, M., Belongie, S., et al. (2014):** [Microsoft COCO: Common objects in context](https://arxiv.org/abs/1405.0312) - Training dataset
+
+### Quality Metrics
+
+5. **Wang, Z., Bovik, A. C., Sheikh, H. R., & Simoncelli, E. P. (2004):** Image quality assessment: from error visibility to structural similarity (SSIM)
+
+### Novel Contribution
+
+This work combines I-FGSM with UAP methodology specifically targeting CLIP's multimodal latent space:
+
+**v_{t+1} = Π_ε { v_t − α · sign(∇_v cos(f_img(I + v_t), f_txt(T))) }**
+
+Adapting iterative gradient-based attacks to vision-language models for image protection against unauthorized AI training
 
 ---
 

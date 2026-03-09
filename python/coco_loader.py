@@ -133,7 +133,7 @@ class COCODataLoader:
         except Exception as e:
             print(f"[COCO] Warning: Could not load annotations: {e}")
     
-    def get_mini_batch(self, size: int = 1000, seed: Optional[int] = None) -> List[str]:
+    def get_mini_batch(self, size: int = 5000, seed: Optional[int] = None) -> List[str]:
         """
         Get a random mini-batch of image paths
         
@@ -183,7 +183,7 @@ class COCODataLoader:
         return image_path, caption
     
     def get_batch_with_captions(self, 
-                                 size: int = 1000, 
+                                 size: int = 5000, 
                                  seed: Optional[int] = None) -> List[Tuple[str, str]]:
         """
         Get mini-batch with corresponding captions
@@ -340,8 +340,8 @@ def demo():
     print("\n--- Example 4: UAP Generation Workflow ---")
     print("Typical usage for UAP generation:")
     print(f"  1. Total dataset: {len(loader)} images")
-    print(f"  2. Mini-batch size: 1000 images (memory efficient)")
-    print(f"  3. Number of batches: {len(loader) // 1000}")
+    print(f"  2. Mini-batch size: 5000 images (memory efficient)")
+    print(f"  3. Number of batches: {len(loader) // 5000}")
     print(f"  4. Can iterate multiple passes over different batches")
     
     # Show how to use in UAP generation
@@ -349,8 +349,8 @@ def demo():
     print("```python")
     print("loader = COCODataLoader()")
     print("for pass_num in range(5):  # Multiple passes")
-    print("    batch = loader.get_mini_batch(size=1000)")
-    print("    descriptions = loader.create_text_descriptions_for_batch(1000)")
+    print("    batch = loader.get_mini_batch(size=5000)")
+    print("    descriptions = loader.create_text_descriptions_for_batch(5000)")
     print("    # Run UAP optimization on this batch")
     print("    # perturbation = optimize(batch, descriptions)")
     print("```")
@@ -358,7 +358,7 @@ def demo():
     print("\n" + "="*60)
     print("Demo Complete!")
     print("="*60)
-    print("\nKey Function: loader.get_mini_batch(size=1000)")
+    print("\nKey Function: loader.get_mini_batch(size=5000)")
     print("  - Randomly samples images without loading into memory")
     print("  - Enables UAP generation on CPU with limited RAM")
     print("  - Representative sampling from 100K+ images")
