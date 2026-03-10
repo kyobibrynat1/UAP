@@ -37,6 +37,8 @@ import clip
 import os
 from tqdm import tqdm
 from typing import Optional, Dict, List
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from datetime import datetime
 
@@ -162,6 +164,9 @@ class UniversalPerturbationGenerator:
                  learning_rate: float = 20/255,
                  alpha: float = 1.0,
                  delta: float = 0.2,
+                 batch_size: int = 16,
+                 use_momentum: bool = True,
+                 momentum_decay: float = 1.0,
                  norm_type: str = "inf",
                  save_checkpoints: bool = True,
                  checkpoint_dir: str = "data/results",
@@ -188,6 +193,9 @@ class UniversalPerturbationGenerator:
             learning_rate: Gradient descent step size (8/255 ≈ 0.031 for faster convergence)
             alpha: Alpha blending for mobile app (0.7 = 70% blend)
             delta: Target fooling rate (0.2 = 80% fooling)
+            batch_size: Images per optimization step (higher = smoother gradients)
+            use_momentum: Use MI-FGSM-style momentum for stronger UAPs
+            momentum_decay: Momentum decay factor (1.0 = strong accumulation)
             norm_type: "inf" (recommended) or "2"
             save_checkpoints: Save perturbation after each iteration
             checkpoint_dir: Directory for checkpoints
@@ -208,6 +216,8 @@ class UniversalPerturbationGenerator:
         print(f"Iterations:         {num_iterations} full passes")
         print(f"Perturbation bound: {xi:.4f} (L-{norm_type})")
         print(f"Learning rate:      {learning_rate:.4f}")
+        print(f"Batch size:         {batch_size}")
+        print(f"Momentum:           {use_momentum} (decay={momentum_decay})")
         print(f"Alpha blending:     {alpha:.2f} (mobile app)")
         print(f"Target fooling:     {(1-delta)*100:.1f}%")
         
@@ -258,7 +268,10 @@ class UniversalPerturbationGenerator:
         
         # ── Phase 3: Compute baseline ──────────────────────────────
         print(f"[Phase 3] Computing baseline similarities ...")
-        baseline_sim = self._compute_baseline(all_image_paths[:100])
+        baseline_sim = self._compute_baseline(
+            all_image_paths[:100],
+            text_descriptions[:100] if use_annotations and has_annotations else None
+        )
         print(f"  Baseline avg similarity: {baseline_sim:.2f}%")
         
         if baseline_sim < 50.0:
@@ -275,6 +288,7 @@ class UniversalPerturbationGenerator:
         print("-"*60)
         
         v = torch.zeros(1, 3, 224, 224, device=self.device)
+        momentum = torch.zeros_like(v)
         
         history = {
             'iterations': [],
@@ -296,39 +310,46 @@ class UniversalPerturbationGenerator:
             epoch_loss = 0.0
             num_processed = 0
             
-            for idx in tqdm(order, desc=f"Iter {iteration+1}", ncols=80):
-                img = dataset[idx]
-                text_feat = text_features[idx:idx+1]
-                
+            for start in tqdm(range(0, actual_n, batch_size), desc=f"Iter {iteration+1}", ncols=80):
+                batch_idx = order[start:start + batch_size]
+                if len(batch_idx) == 0:
+                    continue
+
+                imgs = torch.cat([dataset[i] for i in batch_idx], dim=0)
+                text_feat = text_features[batch_idx]
+
                 # Create perturbation copy with gradient tracking
                 v_grad = v.clone().detach().requires_grad_(True)
-                
+
                 # Apply alpha blending
-                blended = self._apply_alpha_blending(img, v_grad, alpha)
-                
+                blended = self._apply_alpha_blending(imgs, v_grad, alpha)
+
                 # Compute semantic loss
                 loss = self._semantic_loss(blended, text_feat)
-                
+
                 # Backward pass
                 loss.backward()
-                
-                # Update perturbation using I-FGSM adapted for UAP
-                # Formula: v_{t+1} = Π_ε { v_t - α · sign(∇_v cos(...)) }
-                # Citation: Adapted from Kurakin et al. (2016), Moosavi-Dezfooli et al. (2017)
+
+                # Update perturbation using MI-FGSM (momentum) or I-FGSM
+                # Formula: v_{t+1} = Π_ε { v_t - α · sign(g_t) }
                 with torch.no_grad():
-                    # Step 1: Extract gradient sign (I-FGSM characteristic)
-                    grad = v_grad.grad                      # ∇_v cos(f_img(I+v), f_txt(T))
-                    
-                    # Step 2: Sign-based update (gradient DESCENT to minimize similarity)
-                    # We SUBTRACT because we want to MINIMIZE cosine similarity
-                    # (lower similarity = better cloaking)
-                    v = v - learning_rate * grad.sign()     # v_t - α · sign(∇_v)
-                    
-                    # Step 3: Project onto L_p ball (maintain perturbation bound)
-                    v = self._project_perturbation(v, xi, norm_type)  # Π_ε {...}
-                
-                epoch_loss += loss.item()
-                num_processed += 1
+                    grad = v_grad.grad
+                    if use_momentum:
+                        # Normalize to stabilize updates across batches
+                        grad_norm = grad.abs().mean().clamp_min(1e-12)
+                        momentum = momentum_decay * momentum + (grad / grad_norm)
+                        step = momentum.sign()
+                    else:
+                        step = grad.sign()
+
+                    # Gradient descent to minimize cosine similarity
+                    v = v - learning_rate * step
+
+                    # Project onto L_p ball (maintain perturbation bound)
+                    v = self._project_perturbation(v, xi, norm_type)
+
+                epoch_loss += loss.item() * len(batch_idx)
+                num_processed += len(batch_idx)
             
             avg_loss = epoch_loss / num_processed if num_processed > 0 else 0
             
@@ -398,17 +419,21 @@ class UniversalPerturbationGenerator:
         
         return v
     
-    def _compute_baseline(self, image_paths: List[str]) -> float:
+    def _compute_baseline(self,
+                          image_paths: List[str],
+                          text_descriptions: Optional[List[str]] = None) -> float:
         """Compute average baseline similarity"""
         similarities = []
-        
-        for img_path in image_paths[:100]:
+        use_texts = text_descriptions is not None
+
+        for i, img_path in enumerate(image_paths[:100]):
             try:
-                sim = self.clip_model.compute_similarity(img_path, "a photograph")
+                text = text_descriptions[i] if use_texts else "a photograph"
+                sim = self.clip_model.compute_similarity(img_path, text)
                 similarities.append(sim)
-            except:
+            except Exception:
                 continue
-        
+
         return np.mean(similarities) if similarities else 50.0
     
     def _evaluate(self, 
@@ -453,6 +478,19 @@ class UniversalPerturbationGenerator:
         history_path = os.path.join(save_dir, "training_history.npy")
         np.save(history_path, history)
         print(f"✓ Saved training history: {history_path}")
+
+        # Save CSV for easy inspection
+        csv_path = os.path.join(save_dir, "training_history.csv")
+        with open(csv_path, "w", encoding="utf-8") as handle:
+            handle.write("iteration,loss,avg_similarity,fooling_rate\n")
+            for i in range(len(history["iterations"])):
+                handle.write(
+                    f"{history['iterations'][i]},"
+                    f"{history['losses'][i]},"
+                    f"{history['avg_similarities'][i]},"
+                    f"{history['fooling_rates'][i]}\n"
+                )
+        print(f"✓ Saved training CSV: {csv_path}")
         
         # Create plot
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
